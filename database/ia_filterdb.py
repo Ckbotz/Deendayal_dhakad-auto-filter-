@@ -126,31 +126,35 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
     if not query:
         raw_pattern = '.'
     else:
-        # Generate two query variations: one without possessive, one with
+        # Generate three query variations: one without possessive, one with 's as s, one with 's as space s
         words = query.split()
         pattern1_words = [re.sub(r"s$", "", word) if word.endswith("'s") else word for word in words]  # Remove 's (e.g., hunter's → hunter)
         pattern2_words = [word.replace("'s", "s") if word.endswith("'s") else word for word in words]  # Keep 's as s (e.g., hunter's → hunters)
+        pattern3_words = [word.replace("'s", " s") if word.endswith("'s") else word for word in words]  # Replace 's with space s (e.g., hunter's → hunter s)
         
-        # Create regex patterns for both variations
+        # Create regex patterns for all variations
         pattern1 = r'\b' + r'\b\s*'.join(re.escape(word) for word in pattern1_words) + r'\b'
         pattern2 = r'\b' + r'\b\s*'.join(re.escape(word) for word in pattern2_words) + r'\b'
+        pattern3 = r'\b' + r'\b\s*'.join(re.escape(word) for word in pattern3_words) + r'\b'
     
     try:
         regex1 = re.compile(pattern1, flags=re.IGNORECASE)
         regex2 = re.compile(pattern2, flags=re.IGNORECASE)
+        regex3 = re.compile(pattern3, flags=re.IGNORECASE)
     except:
         return []
 
-    # Combine both patterns with $or
+    # Combine all patterns with $or
     if USE_CAPTION_FILTER:
         filter = {
             '$or': [
                 {'$or': [{'file_name': regex1}, {'caption': regex1}]},
-                {'$or': [{'file_name': regex2}, {'caption': regex2}]}
+                {'$or': [{'file_name': regex2}, {'caption': regex2}]},
+                {'$or': [{'file_name': regex3}, {'caption': regex3}]}
             ]
         }
     else:
-        filter = {'$or': [{'file_name': regex1}, {'file_name': regex2}]}
+        filter = {'$or': [{'file_name': regex1}, {'file_name': regex2}, {'file_name': regex3}]}
 
     if file_type:
         filter['file_type'] = file_type
@@ -180,7 +184,7 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
         next_offset = next_offset + len(fileList1)
     else:
         files = fileList2
-        next_offset = offset + max_results
+        next_offset = offset + trend_offset = offset + max_results
     if next_offset >= total_results:
         next_offset = ''
     return files, next_offset, total_results
@@ -194,31 +198,35 @@ async def get_bad_files(query, file_type=None, filter=False):
     if not query:
         raw_pattern = '.'
     else:
-        # Generate two query variations: one without possessive, one with
+        # Generate three query variations: one without possessive, one with 's as s, one with 's as space s
         words = query.split()
         pattern1_words = [re.sub(r"s$", "", word) if word.endswith("'s") else word for word in words]  # Remove 's (e.g., hunter's → hunter)
         pattern2_words = [word.replace("'s", "s") if word.endswith("'s") else word for word in words]  # Keep 's as s (e.g., hunter's → hunters)
+        pattern3_words = [word.replace("'s", " s") if word.endswith("'s") else word for word in words]  # Replace 's with space s (e.g., hunter's → hunter s)
         
-        # Create regex patterns for both variations
+        # Create regex patterns for all variations
         pattern1 = r'\b' + r'\b\s*'.join(re.escape(word) for word in pattern1_words) + r'\b'
         pattern2 = r'\b' + r'\b\s*'.join(re.escape(word) for word in pattern2_words) + r'\b'
+        pattern3 = r'\b' + r'\b\s*'.join(re.escape(word) for word in pattern3_words) + r'\b'
     
     try:
         regex1 = re.compile(pattern1, flags=re.IGNORECASE)
         regex2 = re.compile(pattern2, flags=re.IGNORECASE)
+        regex3 = re.compile(pattern3, flags=re.IGNORECASE)
     except:
         return []
 
-    # Combine both patterns with $or
+    # Combine all patterns with $or
     if USE_CAPTION_FILTER:
         filter = {
             '$or': [
                 {'$or': [{'file_name': regex1}, {'caption': regex1}]},
-                {'$or': [{'file_name': regex2}, {'caption': regex2}]}
+                {'$or': [{'file_name': regex2}, {'caption': regex2}]},
+                {'$or': [{'file_name': regex3}, {'caption': regex3}]}
             ]
         }
     else:
-        filter = {'$or': [{'file_name': regex1}, {'file_name': regex2}]}
+        filter = {'$or': [{'file_name': regex1}, {'file_name': regex2}, {'file_name': regex3}]}
 
     if file_type:
         filter['file_type'] = file_type
@@ -309,8 +317,7 @@ async def send_msg(bot, filename, caption):
 
         filename = re.sub(r"[\(\)\[\]\{\}:;'\-!]", "", filename)
 
-        text = "#𝑵𝒆𝒘_𝑭𝒊𝒍𝒆_𝑨𝒅𝒅𝒆𝒅 ✅\n\n👷𝑵𝒂𝒎𝒆: `{}`\n\n🌳𝑸𝒖𝒂𝒍𝒊𝒕𝒚: {}\n\n🍁𝑨𝒖𝒅𝒊𝒐: {}"
-        text = text.format(filename, quality, language)
+        text = "#𝑵𝒆𝒘_𝑭𝒊𝒍𝒆_𝑨𝒅𝒅𝒆𝒅 ✅\n\n👷𝑵𝒂𝒎𝒆: `{}`\n\n🌳𝑸𝒖𝒂𝒍𝒊𝒕𝒚: {}\n\n🍁𝑨𝒖𝒅  text = text.format(filename, quality, language)
 
         if await add_name(OWNERID, filename):
             imdb = await get_movie_details(filename)  
