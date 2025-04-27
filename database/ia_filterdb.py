@@ -119,7 +119,11 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
                 max_results = 10
             else:
                 max_results = int(MAX_B_TN)
-    query = query.strip()
+    
+    # Improved query cleaning with more special characters
+    query = re.sub(r"[-:\"'‘’“”;!@#$%^&*()\[\]{}\\/,.]", " ", query)
+    query = re.sub(r"\s+", " ", query).strip()
+    
     if not query:
         raw_pattern = '.'
     elif ' ' not in query:
@@ -173,7 +177,10 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
 
 async def get_bad_files(query, file_type=None, filter=False):
     """For given query return (results, next_offset)"""
-    query = query.strip()
+    # Improved query cleaning with more special characters
+    query = re.sub(r"[-:\"'‘’“”;!@#$%^&*()\[\]{}\\/,.]", " ", query)
+    query = re.sub(r"\s+", " ", query).strip()
+    
     if not query:
         raw_pattern = '.'
     elif ' ' not in query:
@@ -311,9 +318,3 @@ async def get_qualities(text, qualities: list):
             quality.append(q)
     quality = ", ".join(quality)
     return quality[:-2] if quality.endswith(", ") else quality
-
-
-
-
-
-
