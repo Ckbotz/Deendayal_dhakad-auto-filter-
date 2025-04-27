@@ -70,38 +70,38 @@ async def choose_mediaDB():
         saveMedia = Media2
 
 async def save_file(bot, media):
-  """Save file in database"""
-  global saveMedia
-  file_id, file_ref = unpack_new_file_id(media.file_id)
-  file_name = re.sub(r"(_|\-|\.|\+)", " ", str(media.file_name))
-  try:
-    if saveMedia == Media2: 
-        if await Media.count_documents({'file_id': file_id}, limit=1):
-            logger.warning(f'{file_name} is already saved in primary database!')
-            return False, 0
-    file = saveMedia(
-        file_id=file_id,
-        file_ref=file_ref,
-        file_name=file_name,
-        file_size=media.file_size,
-        file_type=media.file_type,
-        mime_type=media.mime_type,
-        caption=media.caption.html if media.caption else None,
-    )
-  except ValidationError:
-    logger.exception('Error occurred while saving file in database')
-    return False, 2
-  else:
+    """Save file in database"""
+    global saveMedia
+    file_id, file_ref = unpack_new_file_id(media.file_id)
+    file_name = re.sub(r"(_|\-|\.|\+)", " ", str(media.file_name))
     try:
-      await file.commit()
-    except DuplicateKeyError:
-      logger.warning(f'{getattr(media, "file_name", "NO_FILE")} is already saved in database')   
-      return False, 0
+        if saveMedia == Media2: 
+            if await Media.count_documents({'file_id': file_id}, limit=1):
+                logger.warning(f'{file_name} is already saved in primary database!')
+                return False, 0
+        file = saveMedia(
+            file_id=file_id,
+            file_ref=file_ref,
+            file_name=file_name,
+            file_size=media.file_size,
+            file_type=media.file_type,
+            mime_type=media.mime_type,
+            caption=media.caption.html if media.caption else None,
+        )
+    except ValidationError:
+        logger.exception('Error occurred while saving file in database')
+        return False, 2
     else:
-        logger.info(f'{getattr(media, "file_name", "NO_FILE")} is saved to database')
-        if await get_status(bot.me.id):
-            await send_msg(bot, file.file_name, file.caption)
-        return True, 1
+        try:
+            await file.commit()
+        except DuplicateKeyError:
+            logger.warning(f'{getattr(media, "file_name", "NO_FILE")} is already saved in database')   
+            return False, 0
+        else:
+            logger.info(f'{getattr(media, "file_name", "NO_FILE")} is saved to database')
+            if await get_status(bot.me.id):
+                await send_msg(bot, file.file_name, file.caption)
+            return True, 1
 
 async def get_search_results(chat_id, query, file_type=None, max_results=10, offset=0, filter=False):
     """For given query return (results, next_offset)"""
@@ -119,35 +119,46 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
                 max_results = 10
             else:
                 max_results = int(MAX_B_TN)
-    
-    # Improved query cleaning with more special characters
-    query = re.sub(r"[-:\"'‘’“”;!@#$%^&*()\[\]{}\\/,.]", " ", query)
+    query = query.strip()
+    # Replace special characters with spaces and normalize whitespace
+    query = re.sub(r"[-:\"';!@#$%^&*(),.?/\\{}\[\]=+~<>|]", " ", query)
     query = re.sub(r"\s+", " ", query).strip()
-    
     if not query:
         raw_pattern = '.'
-    elif ' ' not in query:
-        raw_pattern = r'(\b|[\.\+\-_])' + query + r'(\b|[\.\+\-_])'
     else:
-        raw_pattern = query.replace(' ', r'.*[\s\.\+\-_()]')
+        # Generate two query variations: one without possessive, one with
+        words = query.split()
+        pattern1_words = [re.sub(r"s$", "", word) if word.endswith("'s") else word for word in words]  # Remove 's (e.g., hunter's → hunter)
+        pattern2_words = [word.replace("'s", "s") if word.endswith("'s") else word for word in words]  # Keep 's as s (e.g., hunter's → hunters)
+        
+        # Create regex patterns for both variations
+        pattern1 = r'\b' + r'\b\s*'.join(re.escape(word) for word in pattern1_words) + r'\b'
+        pattern2 = r'\b' + r'\b\s*'.join(re.escape(word) for word in pattern2_words) + r'\b'
     
     try:
-        regex = re.compile(raw_pattern, flags=re.IGNORECASE)
+        regex1 = re.compile(pattern1, flags=re.IGNORECASE)
+        regex2 = re.compile(pattern2, flags=re.IGNORECASE)
     except:
         return []
 
+    # Combine both patterns with $or
     if USE_CAPTION_FILTER:
-        filter = {'$or': [{'file_name': regex}, {'caption': regex}]}
+        filter = {
+            '$or': [
+                {'$or': [{'file_name': regex1}, {'caption': regex1}]},
+                {'$or': [{'file_name': regex2}, {'caption': regex2}]}
+            ]
+        }
     else:
-        filter = {'file_name': regex}
+        filter = {'$or': [{'file_name': regex1}, {'file_name': regex2}]}
 
     if file_type:
         filter['file_type'] = file_type
 
-    total_results = ((await Media.count_documents(filter))+(await Media2.count_documents(filter)))
+    total_results = ((await Media.count_documents(filter)) + (await Media2.count_documents(filter)))
 
-    #verifies max_results is an even number or not
-    if max_results%2 != 0: 
+    # Verifies max_results is an even number or not
+    if max_results % 2 != 0:
         logger.info(f"Since max_results is an odd number ({max_results}), bot will use {max_results+1} as max_results to make it even.")
         max_results += 1
 
@@ -160,12 +171,12 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
     cursor2.skip(offset).limit(max_results)
 
     fileList2 = await cursor2.to_list(length=max_results)
-    if len(fileList2)<max_results:
-        next_offset = offset+len(fileList2)
-        cursorSkipper = (next_offset-(await Media2.count_documents(filter)))
-        cursor.skip(cursorSkipper if cursorSkipper>=0 else 0).limit(max_results-len(fileList2))
-        fileList1 = await cursor.to_list(length=(max_results-len(fileList2)))
-        files = fileList2+fileList1
+    if len(fileList2) < max_results:
+        next_offset = offset + len(fileList2)
+        cursorSkipper = (next_offset - (await Media2.count_documents(filter)))
+        cursor.skip(cursorSkipper if cursorSkipper >= 0 else 0).limit(max_results - len(fileList2))
+        fileList1 = await cursor.to_list(length=(max_results - len(fileList2)))
+        files = fileList2 + fileList1
         next_offset = next_offset + len(fileList1)
     else:
         files = fileList2
@@ -174,29 +185,40 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
         next_offset = ''
     return files, next_offset, total_results
 
-
 async def get_bad_files(query, file_type=None, filter=False):
     """For given query return (results, next_offset)"""
-    # Improved query cleaning with more special characters
-    query = re.sub(r"[-:\"'‘’“”;!@#$%^&*()\[\]{}\\/,.]", " ", query)
+    query = query.strip()
+    # Replace special characters with spaces and normalize whitespace
+    query = re.sub(r"[-:\"';!@#$%^&*(),.?/\\{}\[\]=+~<>|]", " ", query)
     query = re.sub(r"\s+", " ", query).strip()
-    
     if not query:
         raw_pattern = '.'
-    elif ' ' not in query:
-        raw_pattern = r'(\b|[\.\+\-_])' + query + r'(\b|[\.\+\-_])'
     else:
-        raw_pattern = query.replace(' ', r'.*[\s\.\+\-_()]')
+        # Generate two query variations: one without possessive, one with
+        words = query.split()
+        pattern1_words = [re.sub(r"s$", "", word) if word.endswith("'s") else word for word in words]  # Remove 's (e.g., hunter's → hunter)
+        pattern2_words = [word.replace("'s", "s") if word.endswith("'s") else word for word in words]  # Keep 's as s (e.g., hunter's → hunters)
+        
+        # Create regex patterns for both variations
+        pattern1 = r'\b' + r'\b\s*'.join(re.escape(word) for word in pattern1_words) + r'\b'
+        pattern2 = r'\b' + r'\b\s*'.join(re.escape(word) for word in pattern2_words) + r'\b'
     
     try:
-        regex = re.compile(raw_pattern, flags=re.IGNORECASE)
+        regex1 = re.compile(pattern1, flags=re.IGNORECASE)
+        regex2 = re.compile(pattern2, flags=re.IGNORECASE)
     except:
         return []
 
+    # Combine both patterns with $or
     if USE_CAPTION_FILTER:
-        filter = {'$or': [{'file_name': regex}, {'caption': regex}]}
+        filter = {
+            '$or': [
+                {'$or': [{'file_name': regex1}, {'caption': regex1}]},
+                {'$or': [{'file_name': regex2}, {'caption': regex2}]}
+            ]
+        }
     else:
-        filter = {'file_name': regex}
+        filter = {'$or': [{'file_name': regex1}, {'file_name': regex2}]}
 
     if file_type:
         filter['file_type'] = file_type
@@ -207,7 +229,7 @@ async def get_bad_files(query, file_type=None, filter=False):
     cursor.sort('$natural', -1)
     cursor2.sort('$natural', -1)
 
-    files = ((await cursor2.to_list(length=(await Media2.count_documents(filter))))+(await cursor.to_list(length=(await Media.count_documents(filter)))))
+    files = ((await cursor2.to_list(length=(await Media2.count_documents(filter)))) + (await cursor.to_list(length=(await Media.count_documents(filter)))))
 
     total_results = len(files)
 
